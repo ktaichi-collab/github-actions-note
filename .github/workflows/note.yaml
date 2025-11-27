@@ -387,9 +387,13 @@ jobs:
         id: state
         run: |
           test -n "$STATE_JSON" || (echo "ERROR: NOTE_STORAGE_STATE_JSON secret is not set" && exit 1)
+          echo "STATE_JSON length: ${#STATE_JSON}"
           mkdir -p "$RUNNER_TEMP"
           echo "$STATE_JSON" > "$RUNNER_TEMP/note-state.json"
           echo "STATE_PATH=$RUNNER_TEMP/note-state.json" >> $GITHUB_OUTPUT
+          echo "STATE_PATH set to: $RUNNER_TEMP/note-state.json"
+          test -f "$RUNNER_TEMP/note-state.json" && echo "Storage state file created successfully" || echo "ERROR: Storage state file not created"
+          echo "File size: $(wc -c < "$RUNNER_TEMP/note-state.json") bytes"
 
       - name: Ensure jq (post)
         run: |
@@ -433,7 +437,17 @@ jobs:
           const TAGS=process.env.TAGS||'';
           const IS_PUBLIC=String(process.env.IS_PUBLIC||'false')==='true';
 
-          if(!fs.existsSync(STATE_PATH)){ console.error('storageState not found:', STATE_PATH); process.exit(1); }
+          console.log('STATE_PATH:', STATE_PATH);
+          console.log('STATE_PATH exists:', fs.existsSync(STATE_PATH || ''));
+          if(!STATE_PATH || !fs.existsSync(STATE_PATH)){ 
+            console.error('storageState not found:', STATE_PATH); 
+            console.error('Current working directory:', process.cwd());
+            console.error('Files in current directory:', fs.readdirSync('.').join(', '));
+            process.exit(1); 
+          }
+          const stateContent = fs.readFileSync(STATE_PATH, 'utf8');
+          console.log('Storage state file size:', stateContent.length, 'bytes');
+          console.log('Storage state has cookies:', stateContent.includes('cookies'));
 
           const ssDir=path.join(os.tmpdir(),'note-screenshots'); fs.mkdirSync(ssDir,{recursive:true}); const SS_PATH=path.join(ssDir,`note-post-${nowStr()}.png`);
 
@@ -590,7 +604,8 @@ jobs:
             page.setDefaultTimeout(180000);
 
             await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-            await page.waitForSelector('textarea[placeholder*="タイトル"]');
+            console.log('Current URL after goto:', page.url());
+            await page.waitForSelector('textarea[placeholder*="タイトル"]', { timeout: 30000 });
             await page.fill('textarea[placeholder*="タイトル"]', TITLE);
 
             const bodyBox = page.locator('div[contenteditable="true"][role="textbox"]').first();
@@ -663,6 +678,20 @@ jobs:
             const finalUrl=page.url();
             console.log('PUBLISHED_URL=' + finalUrl);
             console.log('SCREENSHOT=' + SS_PATH);
+          } catch (error) {
+            console.error('Playwright Error:', error.message);
+            console.error('Error stack:', error.stack);
+            console.error('Current URL on error:', page?.url() || 'N/A');
+            // エラー発生時でも必ずスクリーンショットを試みる
+            try {
+              if (page) {
+                await page.screenshot({ path: SS_PATH, fullPage: true });
+                console.log('SCREENSHOT_ON_ERROR=' + SS_PATH);
+              }
+            } catch (screenshotError) {
+              console.error('Failed to take screenshot:', screenshotError.message);
+            }
+            throw error; // エラーを再スローしてプロセスを終了させる
           } finally {
             try{ await page?.close(); }catch{}
             try{ await context?.close(); }catch{}
