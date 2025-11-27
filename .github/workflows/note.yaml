@@ -71,6 +71,10 @@ jobs:
           npm init -y
           node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           npm i @anthropic-ai/claude-code
+          echo "=== Checking package.json ==="
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('node_modules/@anthropic-ai/claude-code/package.json', 'utf8')); console.log('Main:', pkg.main); console.log('Exports:', JSON.stringify(pkg.exports, null, 2)); console.log('Type:', pkg.type); console.log('Bin:', JSON.stringify(pkg.bin, null, 2)); console.log('Files:', JSON.stringify(pkg.files, null, 2));"
+          echo "=== Looking for entry point ==="
+          find node_modules/@anthropic-ai/claude-code -name "*.js" -o -name "*.mjs" -o -name "index.*" 2>&1 | head -10 || echo "No JS files found"
 
       - name: Research with Claude Code SDK
         run: |
