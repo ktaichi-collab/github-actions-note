@@ -49,11 +49,10 @@ env:
 
 jobs:
   research:
-    name: Research (Tavily Search API)
+    name: Research (CCSDK WebSearch/WebFetch)
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       THEME: ${{ github.event.inputs.theme }}
       TARGET: ${{ github.event.inputs.target }}
     outputs:
@@ -67,114 +66,40 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install AI SDK
-        run: |
-          npm init -y
-          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-          npm i ai @ai-sdk/anthropic
+      - name: Install dependencies
+        run: npm install
 
-      - name: Research with Tavily API
+      - name: Research with Claude Code SDK
         run: |
           cat > research.mjs <<'EOF'
-          import { generateText } from 'ai';
-          import { anthropic } from '@ai-sdk/anthropic';
+          import { query } from '@anthropic-ai/claude-agent-sdk';
           import fs from 'fs';
-
           const theme = process.env.THEME || '';
           const target = process.env.TARGET || '';
           const today = new Date().toISOString().slice(0,10);
-          const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
           const artifactsDir = '.note-artifacts';
           fs.mkdirSync(artifactsDir, { recursive: true });
-
-          if(!TAVILY_API_KEY){ console.error('TAVILY_API_KEY is not set'); process.exit(1); }
-
-          function extractJsonFlexible(raw){
-            const t=(raw||'').trim().replace(/\u200B/g,'');
-            try{ return JSON.parse(t); }catch{}
-            const fence=t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/); if(fence&&fence[1]){ try{ return JSON.parse(fence[1].trim()); }catch{} }
-            let f=t.indexOf('['), l=t.lastIndexOf(']'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
-            return null;
-          }
-
-          async function proposeQueries(theme, target){
-            const sys='あなたはリサーチの専門家です。以下のテーマとターゲットに対して、包括的なリサーチレポートを作成するために必要な検索クエリを最大10件の配列で返してください。出力はJSON配列のみ。';
-            const prompt=`テーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
-            const { text } = await generateText({ model: anthropic('claude-sonnet-4-5-20250929'), system: sys, prompt, temperature: 0, maxTokens: 2000 });
-            const arr = extractJsonFlexible(text||'');
-            return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0,10) : [`${theme} 最新情報`, `${theme} トレンド`, `${theme} 事例`, `${theme} 課題 解決策`];
-          }
-
-          async function tavilySearch(q){
-            const res = await fetch('https://api.tavily.com/search', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ api_key: TAVILY_API_KEY, query: q, search_depth: 'advanced', max_results: 5, include_answer: true })
-            });
-            if(!res.ok){ return { query:q, results:[], answer:null }; }
-            const json = await res.json().catch(()=>({}));
-            return { query:q, results: Array.isArray(json.results)? json.results: [], answer: json.answer || null };
-          }
-
-          function formatEvidence(items){
-            const lines = [];
-            for(const it of items){
-              lines.push(`### 検索: ${it.query}`);
-              if(it.answer){ lines.push(`要約: ${it.answer}`); }
-              for(const r of it.results||[]){
-                const t = (r.title||'').toString();
-                const u = (r.url||'').toString();
-                const c = (r.content||'').toString().slice(0,500);
-                lines.push(`- [${t}](${u})\n  ${c}`);
-              }
-              lines.push('');
-            }
-            return lines.join('\n');
-          }
-
-          async function main(){
-            try {
-              console.log('検索クエリを生成中...');
-              const queries = await proposeQueries(theme, target);
-              console.log(`生成されたクエリ: ${queries.join(', ')}`);
-
-              console.log('Tavily検索を実行中...');
-              const results = [];
-              for(const q of queries){ 
-                console.log(`検索中: ${q}`);
-                results.push(await tavilySearch(q)); 
-              }
-
-              const evidence = formatEvidence(results);
-              const sys=[
-                'あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。',
-                '事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。',
-                '十分な分量（目安: 2,000語以上）。各節で出典を本文に埋め込む。',
-                '提供された検索結果を基に、包括的なリサーチレポートを作成してください。',
-              ].join('\n');
-              const prompt = [
-                `テーマ: ${theme}`,
-                `ターゲット: ${target}`,
-                `現在日付: ${today}`,
-                '',
-                '## 検索結果',
-                evidence
-              ].join('\n');
-
-              console.log('リサーチレポートを生成中...');
-              const { text } = await generateText({ model: anthropic('claude-sonnet-4-5-20250929'), system: sys, prompt, temperature: 0.3, maxTokens: 30000 });
-              
-              fs.writeFileSync(`${artifactsDir}/research.md`, text || '');
-              fs.writeFileSync(`${artifactsDir}/research_trace.json`, JSON.stringify({ queries, results, report: text }, null, 2));
-              console.log('リサーチ完了！');
-            } catch (error) {
-              console.error('エラー:', error);
-              const fallbackReport = `# リサーチレポート: ${theme}\n\n**エラーが発生しました**: ${error.message}`;
-              fs.writeFileSync(`${artifactsDir}/research.md`, fallbackReport);
-              throw error;
-            }
-          }
-
-          await main();
+          const sys = [
+            'あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。',
+            '事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。',
+            '十分な分量（目安: 2,000語以上）。各節で出典を本文に埋め込む。',
+            'WebSearch と WebFetch を必ず使用し、一次情報（公的機関・規格・論文・公式）を優先する。',
+          ].join('\n');
+          const userPrompt = `以下のテーマとターゲットに対する最終版のリサーチレポートを作成してください。\n【重要】途中経過や確認質問は一切せず、最終レポートのみを返してください。不明点がある場合は「前提と仮定」セクションで簡潔に仮定を明記してから続行してください。事実ベースで一次情報を最優先し、本文にMarkdownリンクで出典を埋め込んでください。\n---\nテーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
+          const messages = [];
+          for await (const msg of query({
+            prompt: userPrompt,
+            options: {
+              systemPrompt: sys,
+              allowedTools: ['WebSearch','WebFetch'],
+              permissionMode: 'acceptEdits',
+            },
+          })) { messages.push(msg); }
+          const assistantTexts = messages.filter(m=>m.type==='assistant').map(m=>{
+            const c=m.message?.content; if(Array.isArray(c)){return c.filter(b=>b?.type==='text').map(b=>b.text).join('\n');} return '';
+          }).filter(Boolean).join('\n\n');
+          fs.writeFileSync(`${artifactsDir}/research.md`, assistantTexts || '');
+          try { fs.writeFileSync(`${artifactsDir}/research_trace.json`, JSON.stringify(messages, null, 2)); } catch {}
           EOF
           node research.mjs
 
@@ -217,11 +142,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install AI SDK
-        run: |
-          npm init -y
-          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-          npm i ai @ai-sdk/anthropic
+      - name: Install dependencies
+        run: npm install
 
       - name: Restore research
         env:
@@ -307,11 +229,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install AI SDK
-        run: |
-          npm init -y
-          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-          npm i ai @ai-sdk/anthropic
+      - name: Install dependencies
+        run: npm install
 
       - name: Restore draft json
         env:
@@ -453,11 +372,9 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Playwright
+      - name: Install dependencies
         run: |
-          npm init -y
-          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-          npm i playwright marked
+          npm install
           npx playwright install --with-deps chromium | cat
 
       - name: Prepare storageState
