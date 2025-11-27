@@ -355,7 +355,7 @@ jobs:
   post:
     name: Post to note.com (Playwright)
     needs: factcheck
-    if: ${{ github.event.inputs.dry_run == 'false' }}
+    if: ${{ github.event.inputs.dry_run != 'true' && needs.factcheck.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       IS_PUBLIC: ${{ github.event.inputs.is_public }}
@@ -364,6 +364,12 @@ jobs:
     outputs:
       final_url: ${{ steps.publish.outputs.published_url || steps.publish.outputs.draft_url }}
     steps:
+      - name: Debug dry_run value
+        run: |
+          echo "dry_run input: ${{ github.event.inputs.dry_run }}"
+          echo "dry_run != 'true': ${{ github.event.inputs.dry_run != 'true' }}"
+          echo "factcheck result: ${{ needs.factcheck.result }}"
+      
       - name: Checkout
         uses: actions/checkout@v4
 
