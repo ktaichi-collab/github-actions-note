@@ -75,8 +75,10 @@ jobs:
           echo "=== Package directory structure ==="
           ls -la node_modules/@anthropic-ai/ 2>&1 || echo "anthropic-ai directory not found"
           ls -la node_modules/@anthropic-ai/claude-code/ 2>&1 || echo "claude-code directory not found"
-          echo "=== Package.json of claude-code ==="
+          echo "=== Package.json of claude-code (full content) ==="
           cat node_modules/@anthropic-ai/claude-code/package.json 2>&1 || echo "package.json not found"
+          echo "=== Package.json parsed ==="
+          node -e "const fs=require('fs'); try { const pkg = JSON.parse(fs.readFileSync('node_modules/@anthropic-ai/claude-code/package.json', 'utf8')); console.log(JSON.stringify(pkg, null, 2)); } catch(e) { console.error('Error:', e.message); }" || true
           echo "=== Checking for index files ==="
           find node_modules/@anthropic-ai/claude-code -name "index.*" -o -name "*.js" -o -name "*.mjs" 2>&1 | head -20 || echo "No files found"
           echo "=== Main project package.json ==="
@@ -89,7 +91,7 @@ jobs:
           echo "=== Package files (detailed) ==="
           find node_modules/@anthropic-ai/claude-code -type f 2>&1 | head -30 || echo "No files found"
           echo "=== Package.json exports field ==="
-          node -e "try { const pkg = require('./node_modules/@anthropic-ai/claude-code/package.json'); console.log('Main:', pkg.main); console.log('Exports:', JSON.stringify(pkg.exports, null, 2)); } catch(e) { console.error('Error reading package.json:', e.message); }" || true
+          node -e "try { const pkg = require('./node_modules/@anthropic-ai/claude-code/package.json'); console.log('Main:', pkg.main); console.log('Exports:', JSON.stringify(pkg.exports, null, 2)); console.log('Type:', pkg.type); console.log('Bin:', pkg.bin); console.log('All keys:', Object.keys(pkg)); } catch(e) { console.error('Error reading package.json:', e.message); }" || true
           cat > research.mjs <<'EOF'
           import { query } from '@anthropic-ai/claude-code';
           import fs from 'fs';
