@@ -69,10 +69,22 @@ jobs:
       - name: Install Claude Code SDK
         run: |
           npm init -y
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           npm i @anthropic-ai/claude-code
+          echo "=== Package directory structure ==="
+          ls -la node_modules/@anthropic-ai/ || echo "anthropic-ai directory not found"
+          ls -la node_modules/@anthropic-ai/claude-code/ || echo "claude-code directory not found"
+          echo "=== Package.json of claude-code ==="
+          cat node_modules/@anthropic-ai/claude-code/package.json || echo "package.json not found"
+          echo "=== Main project package.json ==="
+          cat package.json
 
       - name: Research with Claude Code SDK
         run: |
+          echo "=== Testing package import ==="
+          node --input-type=module -e "import('@anthropic-ai/claude-code').then(m => console.log('Exports:', Object.keys(m))).catch(e => console.error('Import error:', e.message))" || true
+          echo "=== Package files ==="
+          find node_modules/@anthropic-ai/claude-code -name "*.js" -o -name "*.mjs" | head -20 || true
           cat > research.mjs <<'EOF'
           import { query } from '@anthropic-ai/claude-code';
           import fs from 'fs';
@@ -147,6 +159,7 @@ jobs:
       - name: Install AI SDK
         run: |
           npm init -y
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           npm i ai @ai-sdk/anthropic
 
       - name: Restore research
@@ -236,6 +249,7 @@ jobs:
       - name: Install AI SDK
         run: |
           npm init -y
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           npm i ai @ai-sdk/anthropic
 
       - name: Restore draft json
@@ -381,6 +395,7 @@ jobs:
       - name: Install Playwright
         run: |
           npm init -y
+          node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
           npm i playwright marked
           npx playwright install --with-deps chromium | cat
 
