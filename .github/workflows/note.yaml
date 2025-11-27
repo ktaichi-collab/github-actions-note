@@ -355,7 +355,7 @@ jobs:
   post:
     name: Post to note.com (Playwright)
     needs: factcheck
-    if: ${{ github.event.inputs.dry_run != 'true' }}
+    if: ${{ github.event.inputs.dry_run == 'false' }}
     runs-on: ubuntu-latest
     env:
       IS_PUBLIC: ${{ github.event.inputs.is_public }}
