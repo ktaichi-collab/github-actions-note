@@ -70,33 +70,10 @@ jobs:
         run: |
           npm init -y
           node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.type='module'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-          echo "=== Installing @anthropic-ai/claude-code ==="
-          npm i @anthropic-ai/claude-code 2>&1 || echo "Installation failed or warnings occurred"
-          echo "=== Package directory structure ==="
-          ls -la node_modules/@anthropic-ai/ 2>&1 || echo "anthropic-ai directory not found"
-          ls -la node_modules/@anthropic-ai/claude-code/ 2>&1 || echo "claude-code directory not found"
-          echo "=== Package.json of claude-code (full content) ==="
-          if [ -f node_modules/@anthropic-ai/claude-code/package.json ]; then
-            cat node_modules/@anthropic-ai/claude-code/package.json
-            echo ""
-            echo "=== Package.json parsed (structured) ==="
-            node -e "const fs=require('fs'); try { const pkg = JSON.parse(fs.readFileSync('node_modules/@anthropic-ai/claude-code/package.json', 'utf8')); console.log('Name:', pkg.name); console.log('Version:', pkg.version); console.log('Main:', pkg.main); console.log('Type:', pkg.type); console.log('Exports:', JSON.stringify(pkg.exports, null, 2)); console.log('Bin:', JSON.stringify(pkg.bin, null, 2)); console.log('Files:', JSON.stringify(pkg.files, null, 2)); console.log('All keys:', Object.keys(pkg).join(', ')); } catch(e) { console.error('Error:', e.message); }"
-          else
-            echo "package.json not found!"
-          fi
-          echo "=== Checking for index files ==="
-          find node_modules/@anthropic-ai/claude-code -name "index.*" -o -name "*.js" -o -name "*.mjs" 2>&1 | head -20 || echo "No files found"
-          echo "=== Main project package.json ==="
-          cat package.json
+          npm i @anthropic-ai/claude-code
 
       - name: Research with Claude Code SDK
         run: |
-          echo "=== Testing package import ==="
-          node --input-type=module -e "import('@anthropic-ai/claude-code').then(m => console.log('Exports:', Object.keys(m))).catch(e => { console.error('Import error:', e.message); console.error('Stack:', e.stack); process.exit(1); })" || echo "Import test completed with errors"
-          echo "=== Package files (detailed) ==="
-          find node_modules/@anthropic-ai/claude-code -type f 2>&1 | head -30 || echo "No files found"
-          echo "=== Package.json exports field ==="
-          node -e "try { const pkg = require('./node_modules/@anthropic-ai/claude-code/package.json'); console.log('Main:', pkg.main); console.log('Exports:', JSON.stringify(pkg.exports, null, 2)); console.log('Type:', pkg.type); console.log('Bin:', pkg.bin); console.log('All keys:', Object.keys(pkg)); } catch(e) { console.error('Error reading package.json:', e.message); }" || true
           cat > research.mjs <<'EOF'
           import { query } from '@anthropic-ai/claude-code';
           import fs from 'fs';
