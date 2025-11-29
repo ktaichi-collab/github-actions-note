@@ -753,14 +753,12 @@ jobs:
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
 
-      # =======================================================
-      # 💡 修正点4: エラー時でもスクリーンショットを必ずアップロード
-      # =======================================================
+      # 💡 修正点: 常に実行し、ディレクトリ指定で確実に回収する
       - name: Upload screenshot (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: note-screenshot
-          path: ${{ runner.temp }}/note-screenshots
-          if-no-files-found: ignore
+          path: ${{ runner.temp }}/note-screenshots/
+          if-no-files-found: warn
 
