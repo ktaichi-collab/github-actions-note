@@ -49,7 +49,7 @@ env:
 
 jobs:
   research:
-    name: Research (CCSDK WebSearch/WebFetch)
+    name: Research
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -60,15 +60,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Install dependencies
         run: npm install
-
       - name: Research with Claude Code SDK
         run: |
           cat > research.mjs <<'EOF'
@@ -102,7 +99,6 @@ jobs:
           try { fs.writeFileSync(`${artifactsDir}/research_trace.json`, JSON.stringify(messages, null, 2)); } catch {}
           EOF
           node research.mjs
-
       - name: Collect research
         id: collect
         run: |
@@ -110,7 +106,6 @@ jobs:
           echo "research_b64<<EOF" >> $GITHUB_OUTPUT
           echo "$b64" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -120,7 +115,7 @@ jobs:
             .note-artifacts/research_trace.json
 
   write:
-    name: Write (Claude Sonnet 4.0)
+    name: Write
     needs: research
     runs-on: ubuntu-latest
     env:
@@ -136,23 +131,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Install dependencies
         run: npm install
-
       - name: Restore research
         env:
           RESEARCH_B64: ${{ needs.research.outputs.research_b64 }}
         run: |
           mkdir -p .note-artifacts
           echo "$RESEARCH_B64" | base64 -d > .note-artifacts/research.md || echo "$RESEARCH_B64" | base64 --decode > .note-artifacts/research.md
-
-      - name: Generate draft (title/body/tags)
+      - name: Generate draft
         run: |
           cat > write.mjs <<'EOF'
           import { generateText } from 'ai';
@@ -166,7 +157,6 @@ jobs:
           async function repairJson(raw){const sys='入力から {"title":string,"draftBody":string,"tags":string[]} のJSONのみ返答。';const {text}=await generateText({model:anthropic(modelName),system:sys,prompt:String(raw),temperature:0,maxTokens:8000});return extractJsonFlexible(text||'');}
           function sanitizeTitle(t){
             let s=String(t||'').trim();
-            // フェンスや見出し、引用符を除去
             s=s.replace(/^```[a-zA-Z0-9_-]*\s*$/,'').replace(/^```$/,'');
             s=s.replace(/^#+\s*/,'');
             s=s.replace(/^"+|"+$/g,'').replace(/^'+|'+$/g,'');
@@ -190,7 +180,6 @@ jobs:
           fs.writeFileSync('.note-artifacts/draft.json',JSON.stringify({title,draftBody,tags},null,2));
           EOF
           node write.mjs
-
       - name: Collect draft
         id: collect
         run: |
@@ -202,7 +191,6 @@ jobs:
           echo "draft_json_b64<<EOF" >> $GITHUB_OUTPUT
           echo "$b64" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Upload draft artifact
         uses: actions/upload-artifact@v4
         with:
@@ -223,30 +211,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Install dependencies
         run: npm install
-
-      # =======================================================
-      # 💡 修正点1: APIレート制限回避のための待機時間
-      # =======================================================
+      # APIレート制限回避のための待機
       - name: Cool down for Rate Limit
         run: |
           echo "Waiting 90s to reset Anthropic API rate limit..."
           sleep 90
-
       - name: Restore draft json
         env:
           DRAFT_JSON_B64: ${{ needs.write.outputs.draft_json_b64 }}
         run: |
           mkdir -p .note-artifacts
           echo "$DRAFT_JSON_B64" | base64 -d > .note-artifacts/draft.json || echo "$DRAFT_JSON_B64" | base64 --decode > .note-artifacts/draft.json
-
       - name: Fact-check with Tavily
         run: |
           cat > factcheck.mjs <<'EOF'
@@ -260,12 +241,9 @@ jobs:
 
           function extractJsonFlexible(raw){
             const t=(raw||'').trim().replace(/\u200B/g,'');
-            // try object
             try{ const o=JSON.parse(t); return o; }catch{}
             const fence=t.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/); if(fence&&fence[1]){ try{ return JSON.parse(fence[1].trim()); }catch{} }
-            // try object slice
             let f=t.indexOf('{'), l=t.lastIndexOf('}'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
-            // try array slice
             f=t.indexOf('['); l=t.lastIndexOf(']'); if(f!==-1&&l!==-1&&l>f){ const cand=t.slice(f,l+1); try{ return JSON.parse(cand); }catch{} }
             return null;
           }
@@ -281,7 +259,6 @@ jobs:
             const arr = extractJsonFlexible(text||'');
             return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0,10) : [];
           }
-
           async function tavilySearch(q){
             const res = await fetch('https://api.tavily.com/search', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -291,23 +268,19 @@ jobs:
             const json = await res.json().catch(()=>({}));
             return { query:q, results: Array.isArray(json.results)? json.results: [], answer: json.answer || null };
           }
-
           function formatEvidence(items){
             const lines = [];
             for(const it of items){
               lines.push(`### 検索: ${it.query}`);
               if(it.answer){ lines.push(`要約: ${it.answer}`); }
               for(const r of it.results||[]){
-                const t = (r.title||'').toString();
-                const u = (r.url||'').toString();
-                const c = (r.content||'').toString().slice(0,500);
+                const t = (r.title||'').toString(); const u = (r.url||'').toString(); const c = (r.content||'').toString().slice(0,500);
                 lines.push(`- [${t}](${u})\n  ${c}`);
               }
               lines.push('');
             }
             return lines.join('\n');
           }
-
           async function main(){
             const queries = await proposeQueries(draft.draftBody||'');
             const results = [];
@@ -318,9 +291,7 @@ jobs:
               '誤情報の修正・低信頼出典の置換・信頼できる一次情報の本文内Markdownリンク埋め込みを行って、修正後の本文のみ返してください。',
               '文体・構成は原稿を尊重し、必要に応じて本文末尾に参考文献セクションを追加してください。',
             ].join('\n');
-            const prompt = [
-              '## 原稿', String(draft.draftBody||''), '', '## エビデンス（Tavily検索結果）', evidence
-            ].join('\n\n');
+            const prompt = [ '## 原稿', String(draft.draftBody||''), '', '## エビデンス（Tavily検索結果）', evidence ].join('\n\n');
             const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt, temperature: 0.3, maxTokens: 30000 });
             let body = stripCodeFence(text||'');
             let title = process.env.TITLE || draft.title || '';
@@ -337,17 +308,14 @@ jobs:
             const out = { title, body, tags };
             fs.writeFileSync('.note-artifacts/final.json', JSON.stringify(out,null,2));
           }
-
           await main();
           EOF
           node factcheck.mjs
-
       - name: Upload fact-check artifact
         uses: actions/upload-artifact@v4
         with:
           name: final-artifact
           path: .note-artifacts/final.json
-
       - name: Collect final
         id: collect
         run: |
@@ -361,7 +329,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
   post:
-    name: Post to note.com (Playwright)
+    name: Post to note.com
     needs: factcheck
     if: ${{ github.event.inputs.dry_run != 'true' && needs.factcheck.result == 'success' }}
     runs-on: ubuntu-latest
@@ -374,17 +342,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Install dependencies
         run: |
           npm install
           npx playwright install --with-deps chromium | cat
-
       - name: Prepare storageState
         id: state
         run: |
@@ -392,14 +357,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP"
           echo "$STATE_JSON" > "$RUNNER_TEMP/note-state.json"
           echo "STATE_PATH=$RUNNER_TEMP/note-state.json" >> $GITHUB_OUTPUT
-
-      - name: Ensure jq (post)
+      - name: Ensure jq
         run: |
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y jq
           fi
-
       - name: Restore final
         id: draft
         env:
@@ -410,7 +373,7 @@ jobs:
           echo "TITLE=$(jq -r .title final.json)" >> $GITHUB_OUTPUT
           echo "TAGS=$(jq -r '.tags | join(", ")' final.json)" >> $GITHUB_OUTPUT
 
-      - name: Publish via Playwright (draft or public)
+      - name: Publish via Playwright
         id: publish
         env:
           TITLE: ${{ steps.draft.outputs.TITLE }}
@@ -418,9 +381,6 @@ jobs:
           STATE_PATH: ${{ steps.state.outputs.STATE_PATH }}
         shell: bash
         run: |
-          # =======================================================
-          # 💡 修正点2: パイプのエラー隠蔽を防ぐ
-          # =======================================================
           set -o pipefail
           
           cat > post.mjs <<'EOF'
@@ -441,150 +401,22 @@ jobs:
           const IS_PUBLIC=String(process.env.IS_PUBLIC||'false')==='true';
           const ssDir=path.join(os.tmpdir(),'note-screenshots'); fs.mkdirSync(ssDir,{recursive:true}); const SS_PATH=path.join(ssDir,`note-post-${nowStr()}.png`);
 
-          function sanitizeTitle(t){
-            let s=String(t||'').trim();
-            s=s.replace(/^```[a-zA-Z0-9_-]*\s*$/,'').replace(/^```$/,'');
-            s=s.replace(/^#+\s*/,'');
-            s=s.replace(/^"+|"+$/g,'').replace(/^'+|'+$/g,'');
-            s=s.replace(/^`+|`+$/g,'');
-            s=s.replace(/^json$/i,'').trim();
-            // タイトルが波括弧や記号のみの時は無効として扱う
-            if (/^[\{\}\[\]\(\)\s]*$/.test(s)) s='';
-            if(!s) s='タイトル（自動生成）';
-            return s;
-          }
-          function deriveTitleFromMarkdown(md){
-            const lines=String(md||'').split(/\r?\n/);
-            for (const line of lines){
-              const l=line.trim();
-              if(!l) continue;
-              const m=l.match(/^#{1,3}\s+(.+)/); if(m) return sanitizeTitle(m[1]);
-              if(!/^```|^>|^\* |^- |^\d+\. /.test(l)) return sanitizeTitle(l);
-            }
-            return '';
-          }
-          function normalizeBullets(md){
-            // 先頭の中黒・ビュレットを箇条書きに正規化
-            return String(md||'')
-              .replace(/^\s*[•・]\s?/gm,'- ')
-              .replace(/^\s*◦\s?/gm,'  - ');
-          }
-          function unwrapParagraphs(md){
-            // 段落中の不必要な改行をスペースへ（見出し/リスト/引用/コードは除外）
-            const lines=String(md||'').split(/\r?\n/);
-            const out=[]; let buf=''; let inFence=false;
-            for(const raw of lines){
-              const line=raw.replace(/\u200B/g,'');
-              if(/^```/.test(line)){ inFence=!inFence; buf+=line+'\n'; continue; }
-              if(inFence){ buf+=line+'\n'; continue; }
-              if(/^\s*$/.test(line)){ if(buf) out.push(buf.trim()); out.push(''); buf=''; continue; }
-              // 箇条書きや番号付きの字下げ改行を一行に連結
-              if(/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)/.test(line)){
-                if(buf){ out.push(buf.trim()); buf=''; }
-                // 次の数行が連続して単語単位の改行の場合は連結
-                out.push(line.replace(/\s+$/,''));
-                continue;
-              }
-              // 行頭が1文字や数文字で改行されているケース（縦伸び）を連結
-              if(buf){ buf += (/[。.!?)]$/.test(buf) ? '\n' : ' ') + line.trim(); }
-              else { buf = line.trim(); }
-            }
-            if(buf) out.push(buf.trim());
-            return out.join('\n');
-          }
-          function preferBareUrls(md){
-            const embedDomains=['openai.com','youtube.com','youtu.be','x.com','twitter.com','speakerdeck.com','slideshare.net','google.com','maps.app.goo.gl','gist.github.com'];
-            return String(md||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,text,url)=>{
-              try{
-                const u=new URL(url); const host=u.hostname.replace(/^www\./,'');
-                const isEmbed = embedDomains.some(d=>host.endsWith(d) || (url.includes('google.com/maps') && d.includes('google.com')));
-                return isEmbed ? `${text}\n${url}\n` : `${text} (${url})`;
-              }catch{return `${text} ${url}`;}
-            });
-          }
-          function isGarbageLine(line){
-            return /^[\s\{\}\[\]\(\)`]+$/.test(line || '');
-          }
-          function normalizeListItemSoftBreaks(md){
-            const lines=String(md||'').split(/\r?\n/);
-            const out=[]; let inItem=false;
-            const listStartRe=/^(\s*)(?:[-*+]\s|\d+\.\s)/;
-            for (let i=0;i<lines.length;i++){
-              const line=lines[i];
-              if (listStartRe.test(line)){
-                inItem=true;
-                out.push(line.replace(/\s+$/,''));
-                continue;
-              }
-              if (inItem){
-                // 空行 or 次のリスト開始でアイテム終端
-                if (!line.trim()) { out.push(line); inItem=false; continue; }
-                if (listStartRe.test(line)) { inItem=false; out.push(line); continue; }
-                // 継続行は1行へ連結
-                const last = out.pop() || '';
-                out.push(last + ' ' + line.trim());
-                continue;
-              }
-              out.push(line);
-            }
-            return out.join('\n');
-          }
-          function splitMarkdownBlocks(md){
-            const lines=String(md||'').split(/\r?\n/);
-            const blocks=[]; let cur=[]; let inFence=false; let fenceTag='';
-            for(const line of lines){
-              const m=line.match(/^```(.*)$/);
-              if(m){
-                if(!inFence){ inFence=true; fenceTag=m[1]||''; cur.push(line); }
-                else { inFence=false; fenceTag=''; cur.push(line); blocks.push(cur.join('\n')); cur=[]; continue; }
-              } else if(!inFence && line.trim()===''){ if(cur.length){ blocks.push(cur.join('\n')); cur=[]; continue; } }
-              else if(!inFence && isGarbageLine(line)) { continue; }
-              cur.push(line);
-            }
-            if(cur.length) blocks.push(cur.join('\n'));
-            return blocks.filter(b=>{ const t=b.trim(); return t.length>0 && !isGarbageLine(t); });
-          }
-          function mdToHtml(block){
-            // JSONが紛れ込んでしまった場合は本文候補のみ抽出
-            try{
-              const maybe = JSON.parse(block);
-              if (maybe && typeof maybe==='object' && !Array.isArray(maybe)){
-                const candidates=[maybe.body, maybe.draftBody, maybe.content, maybe.text];
-                const chosen=candidates.find(v=>typeof v==='string' && v.trim());
-                if (chosen) block = String(chosen);
-              }
-            }catch{}
-            const isList = /^\s*(?:[-*+]\s|\d+\.\s)/.test(block);
-            return String(marked.parse(block, { gfm:true, breaks: !isList, mangle:false, headerIds:false }) || '');
-          }
-          function htmlFromMarkdown(md){
-            // 全文を一括でHTML化（段落ベース）。リスト中の意図しない <br> を避けるため breaks=false
-            return String(marked.parse(md, { gfm:true, breaks:false, mangle:false, headerIds:false }) || '');
-          }
-          async function insertHTML(page, locator, html){
-            await locator.click();
-            await locator.evaluate((el, html) => {
-              el.focus();
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(el);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              document.execCommand('insertHTML', false, html);
-            }, html);
-          }
+          function sanitizeTitle(t){ let s=String(t||'').trim().replace(/^```[a-zA-Z0-9_-]*\s*$/,'').replace(/^```$/,'').replace(/^#+\s*/,'').replace(/^"+|"+$/g,'').replace(/^'+|'+$/g,'').replace(/^`+|`+$/g,'').replace(/^json$/i,'').trim(); if(/^[\{\}\[\]\(\)\s]*$/.test(s)) s=''; if(!s) s='タイトル（自動生成）'; return s; }
+          function deriveTitleFromMarkdown(md){ const lines=String(md||'').split(/\r?\n/); for (const line of lines){ const l=line.trim(); if(!l) continue; const m=l.match(/^#{1,3}\s+(.+)/); if(m) return sanitizeTitle(m[1]); if(!/^```|^>|^\* |^- |^\d+\. /.test(l)) return sanitizeTitle(l); } return ''; }
+          function normalizeBullets(md){ return String(md||'').replace(/^\s*[•・]\s?/gm,'- ').replace(/^\s*◦\s?/gm,'  - '); }
+          function unwrapParagraphs(md){ const lines=String(md||'').split(/\r?\n/); const out=[]; let buf=''; let inFence=false; for(const raw of lines){ const line=raw.replace(/\u200B/g,''); if(/^```/.test(line)){ inFence=!inFence; buf+=line+'\n'; continue; } if(inFence){ buf+=line+'\n'; continue; } if(/^\s*$/.test(line)){ if(buf) out.push(buf.trim()); out.push(''); buf=''; continue; } if(/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)/.test(line)){ if(buf){ out.push(buf.trim()); buf=''; } out.push(line.replace(/\s+$/,'')); continue; } if(buf){ buf += (/[。.!?)]$/.test(buf) ? '\n' : ' ') + line.trim(); } else { buf = line.trim(); } } if(buf) out.push(buf.trim()); return out.join('\n'); }
+          function preferBareUrls(md){ const embedDomains=['openai.com','youtube.com','youtu.be','x.com','twitter.com','speakerdeck.com','slideshare.net','google.com','maps.app.goo.gl','gist.github.com']; return String(md||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,text,url)=>{ try{ const u=new URL(url); const host=u.hostname.replace(/^www\./,''); const isEmbed = embedDomains.some(d=>host.endsWith(d) || (url.includes('google.com/maps') && d.includes('google.com'))); return isEmbed ? `${text}\n${url}\n` : `${text} (${url})`; }catch{return `${text} ${url}`;} }); }
+          function normalizeListItemSoftBreaks(md){ const lines=String(md||'').split(/\r?\n/); const out=[]; let inItem=false; const listStartRe=/^(\s*)(?:[-*+]\s|\d+\.\s)/; for (let i=0;i<lines.length;i++){ const line=lines[i]; if (listStartRe.test(line)){ inItem=true; out.push(line.replace(/\s+$/,'')); continue; } if (inItem){ if (!line.trim()) { out.push(line); inItem=false; continue; } if (listStartRe.test(line)) { inItem=false; out.push(line); continue; } const last = out.pop() || ''; out.push(last + ' ' + line.trim()); continue; } out.push(line); } return out.join('\n'); }
+          function mdToHtml(block){ try{ const maybe = JSON.parse(block); if (maybe && typeof maybe==='object' && !Array.isArray(maybe)){ const candidates=[maybe.body, maybe.draftBody, maybe.content, maybe.text]; const chosen=candidates.find(v=>typeof v==='string' && v.trim()); if (chosen) block = String(chosen); } }catch{} const isList = /^\s*(?:[-*+]\s|\d+\.\s)/.test(block); return String(marked.parse(block, { gfm:true, breaks: !isList, mangle:false, headerIds:false }) || ''); }
+          function htmlFromMarkdown(md){ return String(marked.parse(md, { gfm:true, breaks:false, mangle:false, headerIds:false }) || ''); }
+          async function insertHTML(page, locator, html){ await locator.click(); await locator.evaluate((el, html) => { el.focus(); const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(el); range.collapse(false); sel.removeAllRanges(); sel.addRange(range); document.execCommand('insertHTML', false, html); }, html); }
 
           let TITLE=sanitizeTitle(rawTitle);
           let preBody = preferBareUrls(rawBody);
           preBody = normalizeBullets(preBody);
           preBody = normalizeListItemSoftBreaks(preBody);
           preBody = unwrapParagraphs(preBody);
-          if(!TITLE || TITLE==='タイトル（自動生成）'){
-            const d=deriveTitleFromMarkdown(preBody);
-            if(d) TITLE=d;
-          }
-          const blocks = splitMarkdownBlocks(preBody);
+          if(!TITLE || TITLE==='タイトル（自動生成）'){ const d=deriveTitleFromMarkdown(preBody); if(d) TITLE=d; }
 
           let browser, context, page;
           try{
@@ -600,7 +432,8 @@ jobs:
             const currentUrl = page.url();
             console.log('Current URL:', currentUrl);
             if (currentUrl.includes('/login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
-              console.error('ERROR: Redirected to Login page.');
+              console.error('ERROR: Redirected to Login page. Auth session invalid.');
+              await page.screenshot({ path: SS_PATH, fullPage: true });
               process.exit(1);
             }
 
@@ -610,6 +443,7 @@ jobs:
             const bodyBox = page.locator('div[contenteditable="true"][role="textbox"]').first();
             await bodyBox.waitFor({ state: 'visible' });
             const htmlAll = htmlFromMarkdown(preBody);
+            
             let pasted = false;
             try {
               const origin = new URL(START_URL).origin;
@@ -625,9 +459,7 @@ jobs:
               await page.keyboard.press('Control+V');
               await page.waitForTimeout(1000);
               pasted = true;
-            } catch (e) { 
-              console.log('Clipboard paste failed, trying fallback...'); 
-            }
+            } catch (e) { console.log('Clipboard paste failed, trying fallback...'); }
             if (!pasted) {
               await insertHTML(page, bodyBox, htmlAll);
               await page.waitForTimeout(1000);
@@ -638,9 +470,6 @@ jobs:
               const saveBtn = page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first();
               await saveBtn.waitFor({ state: 'visible' });
 
-              // =======================================================
-              // 💡 修正点3: 下書き保存ボタンが有効になるまで連打待機
-              // =======================================================
               let saved = false;
               for(let i=0; i<30; i++){
                 if(await saveBtn.isEnabled()){
@@ -667,7 +496,7 @@ jobs:
               process.exit(0);
             }
 
-            // 公開処理（同様に待機を追加）
+            // 公開処理
             const proceed = page.locator('button:has-text("公開に進む")').first();
             await proceed.waitFor({ state: 'visible' });
             for (let i=0;i<30;i++){ if (await proceed.isEnabled()) break; await page.waitForTimeout(1000); }
@@ -706,8 +535,6 @@ jobs:
             try { if (page) { await page.screenshot({ path: SS_PATH, fullPage: true }); console.log('SCREENSHOT=' + SS_PATH); } } catch {}
             process.exit(1);
           } finally {
-            try{ await page?.close(); }catch{}
-            try{ await context?.close(); }catch{}
             try{ await browser?.close(); }catch{}
           }
           EOF
@@ -719,14 +546,11 @@ jobs:
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
 
-      # =======================================================
-      # 💡 修正点4: エラー時でもスクリーンショットを必ずアップロード
-      # =======================================================
+      # 修正点: エラー時でも必ずスクリーンショットを保存
       - name: Upload screenshot (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: note-screenshot
           path: ${{ runner.temp }}/note-screenshots
-          if-no-files-found: ignore
-
+          if-no-files-found: warn
