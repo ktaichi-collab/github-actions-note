@@ -232,6 +232,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # 💡 レート制限回避のために90秒待機
+      - name: Cool down for Rate Limit
+        run: |
+          echo "Waiting 90s to reset Anthropic API rate limit..."
+          sleep 90
+
       - name: Restore draft json
         env:
           DRAFT_JSON_B64: ${{ needs.write.outputs.draft_json_b64 }}
@@ -269,7 +275,7 @@ jobs:
 
           async function proposeQueries(body){
             const sys='あなたは事実検証の専門家です。入力本文から検証が必要な固有名詞・数値・主張を抽出し、Tavily検索用に日本語の検索クエリを最大10件の配列で返してください。出力はJSON配列のみ。';
-            const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt: String(body), temperature: 0, maxTokens: 2000 });
+            const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt: String(body), temperature: 0, maxTokens: 1000 });
             const arr = extractJsonFlexible(text||'');
             return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0,10) : [];
           }
