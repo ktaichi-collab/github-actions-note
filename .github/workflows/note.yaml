@@ -260,7 +260,7 @@ jobs:
             return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0,10) : [];
           }
           async function tavilySearch(q){
-            const res = await fetch('https://api.tavily.com/search', {
+            const res = await fetch('[https://api.tavily.com/search](https://api.tavily.com/search)', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ api_key: TAVILY_API_KEY, query: q, search_depth: 'advanced', max_results: 5, include_answer: true })
             });
@@ -336,7 +336,7 @@ jobs:
     env:
       IS_PUBLIC: ${{ github.event.inputs.is_public }}
       STATE_JSON: ${{ secrets.NOTE_STORAGE_STATE_JSON }}
-      START_URL: https://editor.note.com/new
+      START_URL: [https://editor.note.com/new](https://editor.note.com/new)
     outputs:
       final_url: ${{ steps.publish.outputs.published_url || steps.publish.outputs.draft_url }}
     steps:
@@ -381,10 +381,8 @@ jobs:
           STATE_PATH: ${{ steps.state.outputs.STATE_PATH }}
         shell: bash
         run: |
-          # エラー隠蔽を防ぐ
           set -o pipefail
           
-          # スクリーンショット用ディレクトリ作成
           mkdir -p screenshots
 
           cat > post.mjs <<'EOF'
@@ -394,14 +392,11 @@ jobs:
           import os from 'os';
           import path from 'path';
 
-          // 現在時刻文字列生成
           function nowStr(){ const d=new Date(); const z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}`; }
-          
-          // スクリーンショット保存パス（screenshotsフォルダ直下）
           const SS_PATH = path.join(process.cwd(), 'screenshots', `note-post-${nowStr()}.png`);
 
           const STATE_PATH=process.env.STATE_PATH;
-          const START_URL=process.env.START_URL||'https://editor.note.com/new';
+          const START_URL=process.env.START_URL||'[https://editor.note.com/new](https://editor.note.com/new)';
           const rawTitle=process.env.TITLE||'';
           const rawFinal=JSON.parse(fs.readFileSync('final.json','utf8'));
           const rawBody=String(rawFinal.body||'');
@@ -412,7 +407,7 @@ jobs:
           function deriveTitleFromMarkdown(md){ const lines=String(md||'').split(/\r?\n/); for (const line of lines){ const l=line.trim(); if(!l) continue; const m=l.match(/^#{1,3}\s+(.+)/); if(m) return sanitizeTitle(m[1]); if(!/^```|^>|^\* |^- |^\d+\. /.test(l)) return sanitizeTitle(l); } return ''; }
           function normalizeBullets(md){ return String(md||'').replace(/^\s*[•・]\s?/gm,'- ').replace(/^\s*◦\s?/gm,'  - '); }
           function unwrapParagraphs(md){ const lines=String(md||'').split(/\r?\n/); const out=[]; let buf=''; let inFence=false; for(const raw of lines){ const line=raw.replace(/\u200B/g,''); if(/^```/.test(line)){ inFence=!inFence; buf+=line+'\n'; continue; } if(inFence){ buf+=line+'\n'; continue; } if(/^\s*$/.test(line)){ if(buf) out.push(buf.trim()); out.push(''); buf=''; continue; } if(/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)/.test(line)){ if(buf){ out.push(buf.trim()); buf=''; } out.push(line.replace(/\s+$/,'')); continue; } if(buf){ buf += (/[。.!?)]$/.test(buf) ? '\n' : ' ') + line.trim(); } else { buf = line.trim(); } } if(buf) out.push(buf.trim()); return out.join('\n'); }
-          function preferBareUrls(md){ const embedDomains=['openai.com','youtube.com','youtu.be','x.com','twitter.com','speakerdeck.com','slideshare.net','google.com','maps.app.goo.gl','gist.github.com']; return String(md||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,text,url)=>{ try{ const u=new URL(url); const host=u.hostname.replace(/^www\./,''); const isEmbed = embedDomains.some(d=>host.endsWith(d) || (url.includes('google.com/maps') && d.includes('google.com'))); return isEmbed ? `${text}\n${url}\n` : `${text} (${url})`; }catch{return `${text} ${url}`;} }); }
+          function preferBareUrls(md){ const embedDomains=['openai.com','youtube.com','youtu.be','x.com','twitter.com','speakerdeck.com','slideshare.net','google.com','maps.app.goo.gl','gist.github.com']; return String(md||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,text,url)=>{ try{ const u=new URL(url); const host=u.hostname.replace(/^www\./,''); const isEmbed = embedDomains.some(d=>host.endsWith(d) || (url.includes('[google.com/maps](https://google.com/maps)') && d.includes('google.com'))); return isEmbed ? `${text}\n${url}\n` : `${text} (${url})`; }catch{return `${text} ${url}`;} }); }
           function normalizeListItemSoftBreaks(md){ const lines=String(md||'').split(/\r?\n/); const out=[]; let inItem=false; const listStartRe=/^(\s*)(?:[-*+]\s|\d+\.\s)/; for (let i=0;i<lines.length;i++){ const line=lines[i]; if (listStartRe.test(line)){ inItem=true; out.push(line.replace(/\s+$/,'')); continue; } if (inItem){ if (!line.trim()) { out.push(line); inItem=false; continue; } if (listStartRe.test(line)) { inItem=false; out.push(line); continue; } const last = out.pop() || ''; out.push(last + ' ' + line.trim()); continue; } out.push(line); } return out.join('\n'); }
           function mdToHtml(block){ try{ const maybe = JSON.parse(block); if (maybe && typeof maybe==='object' && !Array.isArray(maybe)){ const candidates=[maybe.body, maybe.draftBody, maybe.content, maybe.text]; const chosen=candidates.find(v=>typeof v==='string' && v.trim()); if (chosen) block = String(chosen); } }catch{} const isList = /^\s*(?:[-*+]\s|\d+\.\s)/.test(block); return String(marked.parse(block, { gfm:true, breaks: !isList, mangle:false, headerIds:false }) || ''); }
           function htmlFromMarkdown(md){ return String(marked.parse(md, { gfm:true, breaks:false, mangle:false, headerIds:false }) || ''); }
@@ -427,7 +422,6 @@ jobs:
 
           let browser, context, page;
           try{
-            // 💡 ステルスモード：Bot検知を回避する重要な設定
             browser = await chromium.launch({ 
               headless: true, 
               args: [
@@ -442,13 +436,11 @@ jobs:
             context = await browser.newContext({ 
               storageState: STATE_PATH, 
               locale: 'ja-JP',
-              // 一般的なChromeブラウザに偽装
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             });
             
             page = await context.newPage();
             
-            // webdriverプロパティを削除（Bot検知回避）
             await page.addInitScript(() => {
               Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
@@ -459,14 +451,13 @@ jobs:
 
             console.log('Navigating to:', START_URL);
             await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-            await page.waitForTimeout(3000); // ページ遷移待ち
+            await page.waitForTimeout(3000); 
 
             const currentUrl = page.url();
             console.log('Current URL:', currentUrl);
             
-            // ログイン画面へ飛ばされていないかチェック
             if (currentUrl.includes('/login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
-              console.error('ERROR: Redirected to Login page. Authentication failed.');
+              console.error('ERROR: Redirected to Login page.');
               try{ await page.screenshot({ path: SS_PATH, fullPage: true }); }catch{}
               process.exit(1);
             }
@@ -566,7 +557,6 @@ jobs:
           } catch (error) {
             console.error('FATAL ERROR:', error.message);
             try { 
-              // エラー時もSS保存を試みる
               if (page) await page.screenshot({ path: SS_PATH, fullPage: true }); 
               console.log('SCREENSHOT=' + SS_PATH);
             } catch {}
