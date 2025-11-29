@@ -418,7 +418,11 @@ jobs:
           TITLE: ${{ steps.draft.outputs.TITLE }}
           TAGS: ${{ steps.draft.outputs.TAGS }}
           STATE_PATH: ${{ steps.state.outputs.STATE_PATH }}
+        shell: bash
         run: |
+          # ★ パイプのエラーを検知するために重要
+          set -o pipefail
+          
           # 本文は後続スクリプト内でMarkdownリンク→素URL化などの前処理を行う
           cat > post.mjs <<'EOF'
           import { chromium } from 'playwright';
@@ -599,12 +603,24 @@ jobs:
           let browser, context, page;
           try{
             browser = await chromium.launch({ headless: true, args: ['--lang=ja-JP'] });
+            if(!fs.existsSync(STATE_PATH)) throw new Error('STATE_PATH not found: ' + STATE_PATH);
             context = await browser.newContext({ storageState: STATE_PATH, locale: 'ja-JP' });
             page = await context.newPage();
-            page.setDefaultTimeout(180000);
+            page.setDefaultTimeout(60000); // タイムアウトを60秒に設定
 
+            console.log('Navigating to:', START_URL);
             await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-            console.log('Current URL after goto:', page.url());
+            
+            // ★ 認証チェック: URLがログインページにリダイレクトされたか確認
+            const currentUrl = page.url();
+            console.log('Current URL:', currentUrl);
+            if (currentUrl.includes('/login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
+              console.error('ERROR: Redirected to Login page. NOTE_STORAGE_STATE_JSON is invalid or expired.');
+              await page.screenshot({ path: SS_PATH, fullPage: true });
+              console.log('SCREENSHOT=' + SS_PATH);
+              process.exit(1); // 明示的にエラー終了
+            }
+
             await page.waitForSelector('textarea[placeholder*="タイトル"]', { timeout: 30000 });
             await page.fill('textarea[placeholder*="タイトル"]', TITLE);
 
@@ -624,21 +640,32 @@ jobs:
               }, htmlAll, preBody);
               await bodyBox.click();
               await page.keyboard.press('Control+V');
-              await page.waitForTimeout(200);
+              await page.waitForTimeout(500);
               pasted = true;
-            } catch (e) {
-              // クリップボード権限が無い場合のフォールバック
+            } catch (e) { 
+              console.log('Clipboard paste failed, trying fallback...'); 
             }
             if (!pasted) {
               // 一括HTML挿入フォールバック
               await insertHTML(page, bodyBox, htmlAll);
-              await page.waitForTimeout(100);
+              await page.waitForTimeout(500);
             }
 
             if(!IS_PUBLIC){
+              console.log('Saving draft...');
               const saveBtn = page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first();
               await saveBtn.waitFor({ state: 'visible' });
-              if(await saveBtn.isEnabled()) { await saveBtn.click(); await page.locator('text=保存しました').waitFor({ timeout: 4000 }).catch(()=>{}); }
+              
+              // 保存前の状態を確認
+              if(await saveBtn.isEnabled()) {
+                 await saveBtn.click();
+                 // "保存しました"が出るまで待つ、あるいはURLが変わるなど
+                 try {
+                   await page.locator('text=保存しました').waitFor({ timeout: 10000 });
+                 } catch(e) {
+                   console.log('Warning: "Saved" toast not found, but continuing...');
+                 }
+              }
               await page.screenshot({ path: SS_PATH, fullPage: true });
               console.log('DRAFT_URL=' + page.url());
               console.log('SCREENSHOT=' + SS_PATH);
@@ -679,19 +706,21 @@ jobs:
             console.log('PUBLISHED_URL=' + finalUrl);
             console.log('SCREENSHOT=' + SS_PATH);
           } catch (error) {
-            console.error('Playwright Error:', error.message);
+            console.error('FATAL ERROR:', error.message);
             console.error('Error stack:', error.stack);
-            console.error('Current URL on error:', page?.url() || 'N/A');
+            if (page) {
+              console.error('Current URL on error:', page.url());
+            }
             // エラー発生時でも必ずスクリーンショットを試みる
             try {
               if (page) {
                 await page.screenshot({ path: SS_PATH, fullPage: true });
-                console.log('SCREENSHOT_ON_ERROR=' + SS_PATH);
+                console.log('SCREENSHOT=' + SS_PATH);
               }
             } catch (screenshotError) {
               console.error('Failed to take screenshot:', screenshotError.message);
             }
-            throw error; // エラーを再スローしてプロセスを終了させる
+            process.exit(1); // エラー終了
           } finally {
             try{ await page?.close(); }catch{}
             try{ await context?.close(); }catch{}
