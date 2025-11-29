@@ -217,11 +217,13 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm install
-      # APIレート制限回避のための待機
+      # =======================================================
+      # 💡 修正点: 待機時間を90秒から300秒（5分）に変更
+      # =======================================================
       - name: Cool down for Rate Limit
         run: |
-          echo "Waiting 90s to reset Anthropic API rate limit..."
-          sleep 90
+          echo "Waiting 300s to reset Anthropic API rate limit..."
+          sleep 300
       - name: Restore draft json
         env:
           DRAFT_JSON_B64: ${{ needs.write.outputs.draft_json_b64 }}
