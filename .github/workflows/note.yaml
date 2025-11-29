@@ -232,7 +232,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # 💡 レート制限回避のために90秒待機
+      # =======================================================
+      # 💡 修正点1: APIレート制限回避のための待機時間
+      # =======================================================
       - name: Cool down for Rate Limit
         run: |
           echo "Waiting 90s to reset Anthropic API rate limit..."
@@ -370,12 +372,6 @@ jobs:
     outputs:
       final_url: ${{ steps.publish.outputs.published_url || steps.publish.outputs.draft_url }}
     steps:
-      - name: Debug dry_run value
-        run: |
-          echo "dry_run input: ${{ github.event.inputs.dry_run }}"
-          echo "dry_run != 'true': ${{ github.event.inputs.dry_run != 'true' }}"
-          echo "factcheck result: ${{ needs.factcheck.result }}"
-      
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -393,13 +389,9 @@ jobs:
         id: state
         run: |
           test -n "$STATE_JSON" || (echo "ERROR: NOTE_STORAGE_STATE_JSON secret is not set" && exit 1)
-          echo "STATE_JSON length: ${#STATE_JSON}"
           mkdir -p "$RUNNER_TEMP"
           echo "$STATE_JSON" > "$RUNNER_TEMP/note-state.json"
           echo "STATE_PATH=$RUNNER_TEMP/note-state.json" >> $GITHUB_OUTPUT
-          echo "STATE_PATH set to: $RUNNER_TEMP/note-state.json"
-          test -f "$RUNNER_TEMP/note-state.json" && echo "Storage state file created successfully" || echo "ERROR: Storage state file not created"
-          echo "File size: $(wc -c < "$RUNNER_TEMP/note-state.json") bytes"
 
       - name: Ensure jq (post)
         run: |
@@ -426,10 +418,11 @@ jobs:
           STATE_PATH: ${{ steps.state.outputs.STATE_PATH }}
         shell: bash
         run: |
-          # ★ パイプのエラーを検知するために重要
+          # =======================================================
+          # 💡 修正点2: パイプのエラー隠蔽を防ぐ
+          # =======================================================
           set -o pipefail
           
-          # 本文は後続スクリプト内でMarkdownリンク→素URL化などの前処理を行う
           cat > post.mjs <<'EOF'
           import { chromium } from 'playwright';
           import { marked } from 'marked';
@@ -446,19 +439,6 @@ jobs:
           const rawBody=String(rawFinal.body||'');
           const TAGS=process.env.TAGS||'';
           const IS_PUBLIC=String(process.env.IS_PUBLIC||'false')==='true';
-
-          console.log('STATE_PATH:', STATE_PATH);
-          console.log('STATE_PATH exists:', fs.existsSync(STATE_PATH || ''));
-          if(!STATE_PATH || !fs.existsSync(STATE_PATH)){ 
-            console.error('storageState not found:', STATE_PATH); 
-            console.error('Current working directory:', process.cwd());
-            console.error('Files in current directory:', fs.readdirSync('.').join(', '));
-            process.exit(1); 
-          }
-          const stateContent = fs.readFileSync(STATE_PATH, 'utf8');
-          console.log('Storage state file size:', stateContent.length, 'bytes');
-          console.log('Storage state has cookies:', stateContent.includes('cookies'));
-
           const ssDir=path.join(os.tmpdir(),'note-screenshots'); fs.mkdirSync(ssDir,{recursive:true}); const SS_PATH=path.join(ssDir,`note-post-${nowStr()}.png`);
 
           function sanitizeTitle(t){
@@ -612,19 +592,16 @@ jobs:
             if(!fs.existsSync(STATE_PATH)) throw new Error('STATE_PATH not found: ' + STATE_PATH);
             context = await browser.newContext({ storageState: STATE_PATH, locale: 'ja-JP' });
             page = await context.newPage();
-            page.setDefaultTimeout(60000); // タイムアウトを60秒に設定
+            page.setDefaultTimeout(60000);
 
             console.log('Navigating to:', START_URL);
             await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
             
-            // ★ 認証チェック: URLがログインページにリダイレクトされたか確認
             const currentUrl = page.url();
             console.log('Current URL:', currentUrl);
             if (currentUrl.includes('/login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
-              console.error('ERROR: Redirected to Login page. NOTE_STORAGE_STATE_JSON is invalid or expired.');
-              await page.screenshot({ path: SS_PATH, fullPage: true });
-              console.log('SCREENSHOT=' + SS_PATH);
-              process.exit(1); // 明示的にエラー終了
+              console.error('ERROR: Redirected to Login page.');
+              process.exit(1);
             }
 
             await page.waitForSelector('textarea[placeholder*="タイトル"]', { timeout: 30000 });
@@ -690,9 +667,10 @@ jobs:
               process.exit(0);
             }
 
+            // 公開処理（同様に待機を追加）
             const proceed = page.locator('button:has-text("公開に進む")').first();
             await proceed.waitFor({ state: 'visible' });
-            for (let i=0;i<20;i++){ if (await proceed.isEnabled()) break; await page.waitForTimeout(100); }
+            for (let i=0;i<30;i++){ if (await proceed.isEnabled()) break; await page.waitForTimeout(1000); }
             await proceed.click({ force: true });
 
             await Promise.race([
@@ -710,7 +688,7 @@ jobs:
 
             const publishBtn = page.locator('button:has-text("投稿する")').first();
             await publishBtn.waitFor({ state: 'visible' });
-            for (let i=0;i<20;i++){ if (await publishBtn.isEnabled()) break; await page.waitForTimeout(100); }
+            for (let i=0;i<30;i++){ if (await publishBtn.isEnabled()) break; await page.waitForTimeout(100); }
             await publishBtn.click({ force: true });
 
             await Promise.race([
@@ -725,20 +703,8 @@ jobs:
             console.log('SCREENSHOT=' + SS_PATH);
           } catch (error) {
             console.error('FATAL ERROR:', error.message);
-            console.error('Error stack:', error.stack);
-            if (page) {
-              console.error('Current URL on error:', page.url());
-            }
-            // エラー発生時でも必ずスクリーンショットを試みる
-            try {
-              if (page) {
-                await page.screenshot({ path: SS_PATH, fullPage: true });
-                console.log('SCREENSHOT=' + SS_PATH);
-              }
-            } catch (screenshotError) {
-              console.error('Failed to take screenshot:', screenshotError.message);
-            }
-            process.exit(1); // エラー終了
+            try { if (page) { await page.screenshot({ path: SS_PATH, fullPage: true }); console.log('SCREENSHOT=' + SS_PATH); } } catch {}
+            process.exit(1);
           } finally {
             try{ await page?.close(); }catch{}
             try{ await context?.close(); }catch{}
@@ -753,12 +719,14 @@ jobs:
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
 
-      # エラーが起きても必ず実行する設定 (if: always)
+      # =======================================================
+      # 💡 修正点4: エラー時でもスクリーンショットを必ずアップロード
+      # =======================================================
       - name: Upload screenshot (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: note-screenshot
-          path: ${{ runner.temp }}/note-screenshots/
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/note-screenshots
+          if-no-files-found: ignore
 
