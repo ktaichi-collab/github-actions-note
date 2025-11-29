@@ -217,7 +217,7 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm install
-      # Rate limit対策
+      # Rate limit対策 (5分待機)
       - name: Cool down for Rate Limit
         run: |
           echo "Waiting 300s (5min) to reset Anthropic API rate limit..."
@@ -381,9 +381,10 @@ jobs:
           STATE_PATH: ${{ steps.state.outputs.STATE_PATH }}
         shell: bash
         run: |
+          # エラー隠蔽を防ぐ
           set -o pipefail
           
-          # スクリーンショット用ディレクトリ作成（カレントディレクトリ直下に作成）
+          # スクリーンショット用ディレクトリ作成
           mkdir -p screenshots
 
           cat > post.mjs <<'EOF'
@@ -393,8 +394,10 @@ jobs:
           import os from 'os';
           import path from 'path';
 
-          // SS_PATHをカレントディレクトリのscreenshotsフォルダに設定
+          // 現在時刻文字列生成
           function nowStr(){ const d=new Date(); const z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}`; }
+          
+          // スクリーンショット保存パス（screenshotsフォルダ直下）
           const SS_PATH = path.join(process.cwd(), 'screenshots', `note-post-${nowStr()}.png`);
 
           const STATE_PATH=process.env.STATE_PATH;
@@ -424,11 +427,11 @@ jobs:
 
           let browser, context, page;
           try{
-            // 💡 ステルスモード設定（ロボット検知回避）
+            // 💡 ステルスモード：Bot検知を回避する重要な設定
             browser = await chromium.launch({ 
               headless: true, 
               args: [
-                '--disable-blink-features=AutomationControlled', // 自動操作フラグを隠す
+                '--disable-blink-features=AutomationControlled', 
                 '--no-sandbox', 
                 '--disable-setuid-sandbox'
               ] 
@@ -439,13 +442,13 @@ jobs:
             context = await browser.newContext({ 
               storageState: STATE_PATH, 
               locale: 'ja-JP',
-              // 💡 User-Agentを一般のWindows Chromeに偽装
+              // 一般的なChromeブラウザに偽装
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             });
             
             page = await context.newPage();
             
-            // 💡 webdriverプロパティを隠蔽
+            // webdriverプロパティを削除（Bot検知回避）
             await page.addInitScript(() => {
               Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
@@ -456,13 +459,15 @@ jobs:
 
             console.log('Navigating to:', START_URL);
             await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-            await page.waitForTimeout(3000); // 遷移待ち
+            await page.waitForTimeout(3000); // ページ遷移待ち
 
-            // 認証チェック
             const currentUrl = page.url();
             console.log('Current URL:', currentUrl);
+            
+            // ログイン画面へ飛ばされていないかチェック
             if (currentUrl.includes('/login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
-              console.error('ERROR: Redirected to Login page.');
+              console.error('ERROR: Redirected to Login page. Authentication failed.');
+              try{ await page.screenshot({ path: SS_PATH, fullPage: true }); }catch{}
               process.exit(1);
             }
 
@@ -525,7 +530,6 @@ jobs:
               process.exit(0);
             }
 
-            // 公開処理
             const proceed = page.locator('button:has-text("公開に進む")').first();
             await proceed.waitFor({ state: 'visible' });
             for (let i=0;i<30;i++){ if (await proceed.isEnabled()) break; await page.waitForTimeout(1000); }
@@ -561,7 +565,11 @@ jobs:
             console.log('SCREENSHOT=' + SS_PATH);
           } catch (error) {
             console.error('FATAL ERROR:', error.message);
-            try { if (page) { await page.screenshot({ path: SS_PATH, fullPage: true }); console.log('SCREENSHOT=' + SS_PATH); } } catch {}
+            try { 
+              // エラー時もSS保存を試みる
+              if (page) await page.screenshot({ path: SS_PATH, fullPage: true }); 
+              console.log('SCREENSHOT=' + SS_PATH);
+            } catch {}
             process.exit(1);
           } finally {
             try{ await browser?.close(); }catch{}
@@ -575,7 +583,7 @@ jobs:
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
 
-      # 💡 修正: エラー時でもスクリーンショットを確実に回収する設定
+      # 💡 スクリーンショットを確実にアップロード（エラー時も実行）
       - name: Upload screenshot (always)
         if: always()
         uses: actions/upload-artifact@v4
