@@ -392,7 +392,10 @@ jobs:
           import os from 'os';
           import path from 'path';
 
+          // 現在時刻文字列生成
           function nowStr(){ const d=new Date(); const z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}_${z(d.getHours())}-${z(d.getMinutes())}-${z(d.getSeconds())}`; }
+          
+          // スクリーンショット保存パス（screenshotsフォルダ直下）
           const SS_PATH = path.join(process.cwd(), 'screenshots', `note-post-${nowStr()}.png`);
 
           const STATE_PATH=process.env.STATE_PATH;
@@ -422,6 +425,7 @@ jobs:
 
           let browser, context, page;
           try{
+            // 💡 ステルスモード：Bot検知を回避する重要な設定
             browser = await chromium.launch({ 
               headless: true, 
               args: [
@@ -436,11 +440,13 @@ jobs:
             context = await browser.newContext({ 
               storageState: STATE_PATH, 
               locale: 'ja-JP',
+              // 一般的なChromeブラウザに偽装
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             });
             
             page = await context.newPage();
             
+            // webdriverプロパティを削除（Bot検知回避）
             await page.addInitScript(() => {
               Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
@@ -451,13 +457,14 @@ jobs:
 
             console.log('Navigating to:', START_URL);
             await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-            await page.waitForTimeout(3000); 
+            await page.waitForTimeout(3000); // ページ遷移待ち
 
             const currentUrl = page.url();
             console.log('Current URL:', currentUrl);
             
+            // ログイン画面へ飛ばされていないかチェック
             if (currentUrl.includes('/login') || currentUrl.includes('auth') || currentUrl.includes('signin')) {
-              console.error('ERROR: Redirected to Login page.');
+              console.error('ERROR: Redirected to Login page. Authentication failed.');
               try{ await page.screenshot({ path: SS_PATH, fullPage: true }); }catch{}
               process.exit(1);
             }
@@ -557,6 +564,7 @@ jobs:
           } catch (error) {
             console.error('FATAL ERROR:', error.message);
             try { 
+              // エラー時もSS保存を試みる
               if (page) await page.screenshot({ path: SS_PATH, fullPage: true }); 
               console.log('SCREENSHOT=' + SS_PATH);
             } catch {}
