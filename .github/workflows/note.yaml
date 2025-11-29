@@ -346,10 +346,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install dependencies
+     - name: Install dependencies
         run: |
           npm install
-          npx playwright install --with-deps chromium | cat
+          npx playwright install --with-deps
       - name: Prepare storageState
         id: state
         run: |
