@@ -646,32 +646,44 @@ jobs:
               }, htmlAll, preBody);
               await bodyBox.click();
               await page.keyboard.press('Control+V');
-              await page.waitForTimeout(500);
+              await page.waitForTimeout(1000);
               pasted = true;
             } catch (e) { 
               console.log('Clipboard paste failed, trying fallback...'); 
             }
             if (!pasted) {
-              // 一括HTML挿入フォールバック
               await insertHTML(page, bodyBox, htmlAll);
-              await page.waitForTimeout(500);
+              await page.waitForTimeout(1000);
             }
 
             if(!IS_PUBLIC){
-              console.log('Saving draft...');
+              console.log('Attempting to save draft...');
               const saveBtn = page.locator('button:has-text("下書き保存"), [aria-label*="下書き保存"]').first();
               await saveBtn.waitFor({ state: 'visible' });
-              
-              // 保存前の状態を確認
-              if(await saveBtn.isEnabled()) {
-                 await saveBtn.click();
-                 // "保存しました"が出るまで待つ、あるいはURLが変わるなど
-                 try {
-                   await page.locator('text=保存しました').waitFor({ timeout: 10000 });
-                 } catch(e) {
-                   console.log('Warning: "Saved" toast not found, but continuing...');
-                 }
+
+              // =======================================================
+              // 💡 修正点3: 下書き保存ボタンが有効になるまで連打待機
+              // =======================================================
+              let saved = false;
+              for(let i=0; i<30; i++){
+                if(await saveBtn.isEnabled()){
+                  console.log('Save button is enabled. Clicking...');
+                  await saveBtn.click();
+                  try {
+                    await Promise.race([
+                      page.locator('text=保存しました').waitFor({ timeout: 5000 }),
+                      page.waitForTimeout(3000)
+                    ]);
+                    saved = true;
+                    break;
+                  } catch(e) { console.log('Click processed but confirmation timeout. Continuing check...'); }
+                }
+                console.log('Waiting for Save button to become enabled...');
+                await page.waitForTimeout(1000);
               }
+              
+              if(!saved) console.warn('WARNING: Could not confirm draft save.');
+
               await page.screenshot({ path: SS_PATH, fullPage: true });
               console.log('DRAFT_URL=' + page.url());
               console.log('SCREENSHOT=' + SS_PATH);
@@ -741,10 +753,14 @@ jobs:
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
 
-      - name: Upload screenshot (if any)
-        if: ${{ steps.publish.outputs.screenshot != '' }}
+      # =======================================================
+      # 💡 修正点4: エラー時でもスクリーンショットを必ずアップロード
+      # =======================================================
+      - name: Upload screenshot (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: note-screenshot
-          path: ${{ steps.publish.outputs.screenshot }}
+          path: ${{ runner.temp }}/note-screenshots
+          if-no-files-found: ignore
 
