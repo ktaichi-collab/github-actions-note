@@ -79,10 +79,10 @@ jobs:
           const sys = [
             'あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。',
             '事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。',
-            '適切な量の情報（事実・統計データ・事例）を効率的に収集すること。',
-            'WebSearch と WebFetch を適切に使用し、一次情報（公的機関・規格・論文・公式）を優先する。',
+            '「網羅性」よりも「重要なポイント」を優先し、無駄な検索を避けて短時間で調査を完了すること。',
+            'WebSearch と WebFetch を使用し、記事の核となる3〜5つの主要な事実・統計・事例を収集する。',
           ].join('\n');
-          const userPrompt = `以下のテーマとターゲットに対するリサーチレポートを作成してください。\n【重要】途中経過や確認質問は一切せず、最終レポートのみを返してください。執筆に必要な適切な量の情報を効率的に収集してください（目安: 2,000語以上）。\n---\nテーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
+          const userPrompt = `以下のテーマとターゲットに対するリサーチレポートを作成してください。\n【重要】途中経過や確認質問は一切せず、最終レポートのみを返してください。\n時間が限られているため、深掘りしすぎず、記事執筆に必須な重要ポイントのみを効率よく収集してください。\n---\nテーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
           const messages = [];
           for await (const msg of query({
             prompt: userPrompt,
@@ -137,6 +137,13 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm install
+      
+      # 💡 修正: 30秒に短縮
+      - name: Cool down before Write
+        run: |
+          echo "Waiting 30s to reset Anthropic API rate limit..."
+          sleep 30
+
       - name: Restore research
         env:
           RESEARCH_B64: ${{ needs.research.outputs.research_b64 }}
@@ -171,7 +178,7 @@ jobs:
             return sanitizeTitle(firstReal);
           }
           
-          // 💡 修正: 文字数を6000〜7000文字に増量
+          // 文字数指定: 6000-7000字
           const sysWrite='note.com向け長文記事の生成。JSON {title,draftBody,tags[]} で返答。draftBodyは6000〜7000文字を目安にし、十分な情報量と具体性を持たせること。章ごとに小見出しと箇条書きを適切に含めること。';
           const prompt=[`{テーマ}: ${theme}`,`{ペルソナ}: ${target}`,`{リサーチ内容}: ${researchReport}`,`{伝えたいこと}: ${message}`,`{読後のアクション}: ${cta}`].join('\n');
           const {text}=await generateText({model:anthropic(modelName),system:sysWrite,prompt,temperature:0.7,maxTokens:30000});
@@ -220,11 +227,11 @@ jobs:
       - name: Install dependencies
         run: npm install
       
-      # 💡 長文生成のため、API制限回避の待機時間を5分(300秒)に確保
+      # 💡 修正: 90秒に短縮 (これでエラーが出たら120秒にしてください)
       - name: Cool down for Rate Limit
         run: |
-          echo "Waiting 300s (5min) to reset Anthropic API rate limit..."
-          sleep 300
+          echo "Waiting 90s to reset Anthropic API rate limit..."
+          sleep 90
 
       - name: Restore draft json
         env:
@@ -293,7 +300,6 @@ jobs:
             const sys=[
               'あなたは事実検証の専門家です。以下の原稿（note記事の下書き）に対し、提供されたエビデンス（Tavily検索結果）に基づき、',
               '誤情報の修正・低信頼出典の置換・信頼できる一次情報の本文内Markdownリンク埋め込みを行って、修正後の本文のみ返してください。',
-              // 💡 修正: ここでも6000〜7000文字を指定
               '文字数は原稿の長さを維持するか、6000〜7000文字程度に収まるように調整してください。',
             ].join('\n');
             const prompt = [ '## 原稿', String(draft.draftBody||''), '', '## エビデンス（Tavily検索結果）', evidence ].join('\n\n');
@@ -414,7 +420,9 @@ jobs:
           function deriveTitleFromMarkdown(md){ const lines=String(md||'').split(/\r?\n/); for (const line of lines){ const l=line.trim(); if(!l) continue; const m=l.match(/^#{1,3}\s+(.+)/); if(m) return sanitizeTitle(m[1]); if(!/^```|^>|^\* |^- |^\d+\. /.test(l)) return sanitizeTitle(l); } return ''; }
           function normalizeBullets(md){ return String(md||'').replace(/^\s*[•・]\s?/gm,'- ').replace(/^\s*◦\s?/gm,'  - '); }
           function unwrapParagraphs(md){ const lines=String(md||'').split(/\r?\n/); const out=[]; let buf=''; let inFence=false; for(const raw of lines){ const line=raw.replace(/\u200B/g,''); if(/^```/.test(line)){ inFence=!inFence; buf+=line+'\n'; continue; } if(inFence){ buf+=line+'\n'; continue; } if(/^\s*$/.test(line)){ if(buf) out.push(buf.trim()); out.push(''); buf=''; continue; } if(/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)/.test(line)){ if(buf){ out.push(buf.trim()); buf=''; } out.push(line.replace(/\s+$/,'')); continue; } if(buf){ buf += (/[。.!?)]$/.test(buf) ? '\n' : ' ') + line.trim(); } else { buf = line.trim(); } } if(buf) out.push(buf.trim()); return out.join('\n'); }
+          
           function preferBareUrls(md){ const embedDomains=['openai.com','youtube.com','youtu.be','x.com','twitter.com','speakerdeck.com','slideshare.net','google.com','maps.app.goo.gl','gist.github.com']; return String(md||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,text,url)=>{ try{ const u=new URL(url); const host=u.hostname.replace(/^www\./,''); const isEmbed = embedDomains.some(d=>host.endsWith(d) || (url.includes('google.com/maps') && d.includes('google.com'))); return isEmbed ? `${text}\n${url}\n` : `${text} (${url})`; }catch{return `${text} ${url}`;} }); }
+          
           function normalizeListItemSoftBreaks(md){ const lines=String(md||'').split(/\r?\n/); const out=[]; let inItem=false; const listStartRe=/^(\s*)(?:[-*+]\s|\d+\.\s)/; for (let i=0;i<lines.length;i++){ const line=lines[i]; if (listStartRe.test(line)){ inItem=true; out.push(line.replace(/\s+$/,'')); continue; } if (inItem){ if (!line.trim()) { out.push(line); inItem=false; continue; } if (listStartRe.test(line)) { inItem=false; out.push(line); continue; } const last = out.pop() || ''; out.push(last + ' ' + line.trim()); continue; } out.push(line); } return out.join('\n'); }
           function mdToHtml(block){ try{ const maybe = JSON.parse(block); if (maybe && typeof maybe==='object' && !Array.isArray(maybe)){ const candidates=[maybe.body, maybe.draftBody, maybe.content, maybe.text]; const chosen=candidates.find(v=>typeof v==='string' && v.trim()); if (chosen) block = String(chosen); } }catch{} const isList = /^\s*(?:[-*+]\s|\d+\.\s)/.test(block); return String(marked.parse(block, { gfm:true, breaks: !isList, mangle:false, headerIds:false }) || ''); }
           function htmlFromMarkdown(md){ return String(marked.parse(md, { gfm:true, breaks:false, mangle:false, headerIds:false }) || ''); }
@@ -573,9 +581,12 @@ jobs:
           }
           EOF
           node post.mjs | tee post.log
+          
+          # エラー回避のおまじない
           url=$(grep '^PUBLISHED_URL=' post.log | tail -n1 | cut -d'=' -f2- || true)
           draft=$(grep '^DRAFT_URL=' post.log | tail -n1 | cut -d'=' -f2- || true)
           shot=$(grep '^SCREENSHOT=' post.log | tail -n1 | cut -d'=' -f2- || true)
+          
           if [ -n "$url" ]; then echo "published_url=$url" >> $GITHUB_OUTPUT; fi
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
