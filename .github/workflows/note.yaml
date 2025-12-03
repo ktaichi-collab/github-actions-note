@@ -79,10 +79,10 @@ jobs:
           const sys = [
             'あなたは最新情報の収集と要約に特化した超一流のリサーチャーです。',
             '事実ベース・一次情報優先・本文内にMarkdownリンクで出典を埋め込むこと。',
-            '十分な分量（目安: 2,000語以上）。各節で出典を本文に埋め込む。',
+            '長文記事（7000文字級）の構成に耐えうる、十分な量の「事実」「統計データ」「事例」を収集すること。',
             'WebSearch と WebFetch を必ず使用し、一次情報（公的機関・規格・論文・公式）を優先する。',
           ].join('\n');
-          const userPrompt = `以下のテーマとターゲットに対する最終版のリサーチレポートを作成してください。\n【重要】途中経過や確認質問は一切せず、最終レポートのみを返してください。不明点がある場合は「前提と仮定」セクションで簡潔に仮定を明記してから続行してください。事実ベースで一次情報を最優先し、本文にMarkdownリンクで出典を埋め込んでください。\n---\nテーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
+          const userPrompt = `以下のテーマとターゲットに対する詳細なリサーチレポートを作成してください。\n【重要】途中経過や確認質問は一切せず、最終レポートのみを返してください。執筆フェーズでネタ切れしないよう、情報は網羅的に収集してください。\n---\nテーマ: ${theme}\nターゲット: ${target}\n現在日付: ${today}`;
           const messages = [];
           for await (const msg of query({
             prompt: userPrompt,
@@ -170,7 +170,9 @@ jobs:
             const firstReal=lines.find(l=>!/^```/.test(l))||lines[0]||'';
             return sanitizeTitle(firstReal);
           }
-          const sysWrite='note.com向け長文記事の生成。JSON {title,draftBody,tags[]} で返答。draftBodyは6000〜9000文字を目安に十分な分量で、章ごとに小見出しと箇条書きを適切に含めること。';
+          
+          // 💡 修正: 文字数を6000〜7000文字に増量
+          const sysWrite='note.com向け長文記事の生成。JSON {title,draftBody,tags[]} で返答。draftBodyは6000〜7000文字を目安にし、十分な情報量と具体性を持たせること。章ごとに小見出しと箇条書きを適切に含めること。';
           const prompt=[`{テーマ}: ${theme}`,`{ペルソナ}: ${target}`,`{リサーチ内容}: ${researchReport}`,`{伝えたいこと}: ${message}`,`{読後のアクション}: ${cta}`].join('\n');
           const {text}=await generateText({model:anthropic(modelName),system:sysWrite,prompt,temperature:0.7,maxTokens:30000});
           let obj=extractJsonFlexible(text||'')||await repairJson(text||'');
@@ -218,11 +220,11 @@ jobs:
       - name: Install dependencies
         run: npm install
       
-      # 💡 修正: 待機時間を1分半（90秒）に短縮
+      # 💡 長文生成のため、API制限回避の待機時間を5分(300秒)に確保
       - name: Cool down for Rate Limit
         run: |
-          echo "Waiting 90s to reset Anthropic API rate limit..."
-          sleep 90
+          echo "Waiting 300s (5min) to reset Anthropic API rate limit..."
+          sleep 300
 
       - name: Restore draft json
         env:
@@ -291,7 +293,8 @@ jobs:
             const sys=[
               'あなたは事実検証の専門家です。以下の原稿（note記事の下書き）に対し、提供されたエビデンス（Tavily検索結果）に基づき、',
               '誤情報の修正・低信頼出典の置換・信頼できる一次情報の本文内Markdownリンク埋め込みを行って、修正後の本文のみ返してください。',
-              '文体・構成は原稿を尊重し、必要に応じて本文末尾に参考文献セクションを追加してください。',
+              // 💡 修正: ここでも6000〜7000文字を指定
+              '文字数は原稿の長さを維持するか、6000〜7000文字程度に収まるように調整してください。',
             ].join('\n');
             const prompt = [ '## 原稿', String(draft.draftBody||''), '', '## エビデンス（Tavily検索結果）', evidence ].join('\n\n');
             const { text } = await generateText({ model: anthropic(modelName), system: sys, prompt, temperature: 0.3, maxTokens: 30000 });
@@ -352,6 +355,7 @@ jobs:
         run: |
           npm install
           npx playwright install --with-deps chromium | cat
+      
       - name: Prepare storageState
         id: state
         run: |
@@ -359,6 +363,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP"
           echo "$STATE_JSON" > "$RUNNER_TEMP/note-state.json"
           echo "STATE_PATH=$RUNNER_TEMP/note-state.json" >> $GITHUB_OUTPUT
+
       - name: Ensure jq
         run: |
           if ! command -v jq >/dev/null 2>&1; then
@@ -398,6 +403,7 @@ jobs:
 
           const STATE_PATH=process.env.STATE_PATH;
           const START_URL=process.env.START_URL||'https://editor.note.com/new';
+          
           const rawTitle=process.env.TITLE||'';
           const rawFinal=JSON.parse(fs.readFileSync('final.json','utf8'));
           const rawBody=String(rawFinal.body||'');
@@ -567,12 +573,9 @@ jobs:
           }
           EOF
           node post.mjs | tee post.log
-          
-          # 💡 修正: エラー回避のためgrepに「|| true」を追加
           url=$(grep '^PUBLISHED_URL=' post.log | tail -n1 | cut -d'=' -f2- || true)
           draft=$(grep '^DRAFT_URL=' post.log | tail -n1 | cut -d'=' -f2- || true)
           shot=$(grep '^SCREENSHOT=' post.log | tail -n1 | cut -d'=' -f2- || true)
-          
           if [ -n "$url" ]; then echo "published_url=$url" >> $GITHUB_OUTPUT; fi
           if [ -n "$draft" ]; then echo "draft_url=$draft" >> $GITHUB_OUTPUT; fi
           if [ -n "$shot" ]; then echo "screenshot=$shot" >> $GITHUB_OUTPUT; fi
